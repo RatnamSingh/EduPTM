@@ -3,6 +3,7 @@ import apiClient, { loginMockERP } from '../api/client';
 
 export default function AdminAnalytics() {
   const [stats, setStats] = useState(null);
+  const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [activeTab, setActiveTab] = useState('ANALYTICS');
@@ -12,16 +13,22 @@ export default function AdminAnalytics() {
   });
   const [creating, setCreating] = useState(false);
 
-  // Fetch stats function to call after creating event
-  const fetchStats = () => {
-    apiClient.get('/analytics')
-      .then(res => setStats(res.data))
-      .catch(err => console.error("Failed to load analytics", err));
+  // Fetch stats and events function
+  const fetchData = async () => {
+    try {
+      const [statsRes, eventsRes] = await Promise.all([
+        apiClient.get('/analytics'),
+        apiClient.get('/events')
+      ]);
+      setStats(statsRes.data);
+      setEvents(eventsRes.data);
+    } catch (err) {
+      console.error("Failed to load dashboard data", err);
+    }
   };
 
   useEffect(() => {
-    fetchStats();
-    setLoading(false);
+    fetchData().finally(() => setLoading(false));
   }, []);
 
   const handleCreateEvent = async (e) => {
@@ -32,7 +39,7 @@ export default function AdminAnalytics() {
       alert('Event created and slots generated successfully!');
       setFormData({ title: '', date: '', start_time: '', end_time: '', slot_duration_minutes: 15, gap_duration_minutes: 5, mode: 'VIRTUAL' });
       setActiveTab('ANALYTICS');
-      fetchStats();
+      fetchData();
     } catch (err) {
       console.error(err);
       alert('Failed to create event');
@@ -70,11 +77,52 @@ export default function AdminAnalytics() {
         </header>
 
         {activeTab === 'ANALYTICS' && (
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-            <StatCard title="Total Events" value={stats?.total_events || 0} color="blue" />
-            <StatCard title="Total Slots Created" value={stats?.total_slots || 0} color="indigo" />
-            <StatCard title="Slots Booked" value={stats?.booked_slots || 0} color="green" />
-            <StatCard title="Utilization Rate" value={`${stats?.utilization_percentage || 0}%`} color="purple" />
+          <div className="space-y-8">
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+              <StatCard title="Total Events" value={stats?.total_events || 0} color="blue" />
+              <StatCard title="Total Slots Created" value={stats?.total_slots || 0} color="indigo" />
+              <StatCard title="Slots Booked" value={stats?.booked_slots || 0} color="green" />
+              <StatCard title="Utilization Rate" value={`${stats?.utilization_percentage || 0}%`} color="purple" />
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-200">
+                <h3 className="text-lg font-medium text-slate-900">Created PTM Events</h3>
+              </div>
+              <div className="divide-y divide-slate-200">
+                {events.length === 0 ? (
+                  <div className="p-6 text-center text-slate-500">No events created yet.</div>
+                ) : (
+                  events.map(event => (
+                    <div key={event.id} className="p-6 hover:bg-slate-50 transition-colors">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="text-lg font-medium text-slate-900">{event.title}</h4>
+                          <div className="mt-1 flex items-center space-x-4 text-sm text-slate-500">
+                            <span className="flex items-center">
+                              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                              {event.date}
+                            </span>
+                            <span className="flex items-center">
+                              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                              {event.start_time.substring(0, 5)} - {event.end_time.substring(0, 5)}
+                            </span>
+                            <span className="flex items-center capitalize">
+                              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                              {event.mode.toLowerCase()}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-right text-sm">
+                          <p className="text-slate-500">Slot Duration: <span className="font-medium text-slate-900">{event.slot_duration_minutes}m</span></p>
+                          <p className="text-slate-500">Gap: <span className="font-medium text-slate-900">{event.gap_duration_minutes}m</span></p>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         )}
 
