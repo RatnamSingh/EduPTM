@@ -20,7 +20,6 @@ services:
   - type: web
     name: eduptm-frontend
     env: static
-    region: ohio
     rootDir: frontend
     buildCommand: "npm install && npm run build"
     staticPublishPath: "./dist"
