@@ -36,6 +36,7 @@ class PTMSlot(TenantAwareModel):
     end_time = models.TimeField()
     room_number = models.CharField(max_length=50, blank=True, null=True)
     meeting_link = models.URLField(blank=True, null=True)
+    dyte_meeting_id = models.CharField(max_length=255, blank=True, null=True)
     is_booked = models.BooleanField(default=False)
 
     class Meta:

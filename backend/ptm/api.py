@@ -8,9 +8,36 @@ from .tasks import send_booking_confirmation_sms, send_booking_confirmation_emai
 import datetime
 import jwt
 import uuid
+import uuid
 from uuid import UUID
+import os
+import requests
 
 api = NinjaAPI()
+
+DYTE_ORG_ID = os.environ.get('DYTE_ORG_ID', '')
+DYTE_API_KEY = os.environ.get('DYTE_API_KEY', '')
+
+# --- Dyte Helpers ---
+def create_dyte_meeting(title):
+    url = "https://api.cluster.dyte.in/v2/meetings"
+    payload = {"title": title, "record_on_start": False}
+    response = requests.post(url, json=payload, auth=(DYTE_ORG_ID, DYTE_API_KEY))
+    if response.status_code == 201:
+        return response.json()['data']['id']
+    return None
+
+def add_dyte_participant(meeting_id, name, preset_name):
+    url = f"https://api.cluster.dyte.in/v2/meetings/{meeting_id}/participants"
+    payload = {
+        "name": name,
+        "preset_name": preset_name,
+        "custom_participant_id": str(uuid.uuid4())
+    }
+    response = requests.post(url, json=payload, auth=(DYTE_ORG_ID, DYTE_API_KEY))
+    if response.status_code == 201:
+        return response.json()['data']['token']
+    return None
 
 # --- JWT Authentication Setup ---
 class JWTAuth(HttpBearer):
@@ -196,10 +223,16 @@ def create_booking(request, payload: BookingInSchema):
         tenant_id=auth_payload['tenant_id']
     )
     
-    # Generate Jitsi WebRTC Link if event is not purely in-person
+    # Generate Dyte WebRTC Meeting if event is not purely in-person
     if slot.event.mode in ['VIRTUAL', 'HYBRID']:
-        room_name = f"PTM-{payload.slot_id}-{uuid.uuid4().hex[:8]}"
-        slot.meeting_link = f"https://meet.jit.si/{room_name}"
+        if DYTE_ORG_ID and DYTE_API_KEY:
+            dyte_meeting_id = create_dyte_meeting(f"PTM with {slot.teacher_id}")
+            if dyte_meeting_id:
+                slot.dyte_meeting_id = dyte_meeting_id
+        else:
+            # Fallback to Jitsi if Dyte keys aren't provided
+            room_name = f"PTM-{payload.slot_id}-{uuid.uuid4().hex[:8]}"
+            slot.meeting_link = f"https://meet.jit.si/{room_name}"
         
     slot.is_booked = True
     slot.save()
@@ -285,6 +318,26 @@ def update_booking(request, booking_id: UUID, payload: BookingUpdateSchema):
     dispatch_webhook.delay(auth_payload['tenant_id'], "booking.updated", payload)
     
     return {"id": booking.id, "status": booking.status, "message": "Booking updated successfully"}
+
+class DyteTokenSchema(Schema):
+    token: str
+
+@api.get("/bookings/{booking_id}/dyte-token", response=DyteTokenSchema, auth=JWTAuth())
+def get_dyte_token(request, booking_id: UUID):
+    auth_payload = request.auth
+    booking = get_object_or_404(PTMBooking, id=booking_id, tenant_id=auth_payload['tenant_id'])
+    
+    if not booking.slot.dyte_meeting_id:
+        return 400, {"message": "No Dyte meeting associated with this booking."}
+        
+    participant_name = f"{auth_payload['role']} - {auth_payload['user_id']}"
+    preset = "group_call_host" if auth_payload['role'] == "TEACHER" else "group_call_participant"
+    
+    token = add_dyte_participant(booking.slot.dyte_meeting_id, participant_name, preset)
+    if token:
+        return {"token": token}
+        
+    return 500, {"message": "Failed to generate Dyte token"}
 
 # --- Analytics Endpoints ---
 class AnalyticsSchema(Schema):
