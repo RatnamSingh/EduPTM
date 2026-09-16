@@ -3,6 +3,7 @@ import ParentBooking from './components/ParentBooking'
 import AdminAnalytics from './components/AdminAnalytics'
 import TeacherPortal from './components/TeacherPortal'
 import Login from './components/Login'
+import SSOHandler from './components/SSOHandler'
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -29,6 +30,10 @@ function App() {
     setIsAuthenticated(false);
     setRole(null);
   };
+
+  if (window.location.pathname === '/sso') {
+    return <SSOHandler />
+  }
 
   if (!isAuthenticated) {
     return <Login onLoginSuccess={handleLoginSuccess} />

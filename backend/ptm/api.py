@@ -4,7 +4,7 @@ from ninja.security import HttpBearer
 from django.shortcuts import get_object_or_404
 from django.conf import settings
 from .models import PTMEvent, PTMSlot, PTMBooking
-from .tasks import send_booking_confirmation_sms, send_booking_confirmation_email
+from .tasks import send_booking_confirmation_sms, send_booking_confirmation_email, dispatch_webhook
 import datetime
 import jwt
 import uuid
@@ -274,6 +274,15 @@ def update_booking(request, booking_id: UUID, payload: BookingUpdateSchema):
         booking.teacher_remarks = payload.teacher_remarks
         
     booking.save()
+    
+    # Trigger Webhook back to ERP
+    payload = {
+        "booking_id": str(booking.id),
+        "student_id": booking.student_id,
+        "status": booking.status,
+        "teacher_remarks": booking.teacher_remarks
+    }
+    dispatch_webhook.delay(auth_payload['tenant_id'], "booking.updated", payload)
     
     return {"id": booking.id, "status": booking.status, "message": "Booking updated successfully"}
 
