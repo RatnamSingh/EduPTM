@@ -8,10 +8,10 @@ from .tasks import send_booking_confirmation_sms, send_booking_confirmation_emai
 import datetime
 import jwt
 import uuid
-import uuid
 from uuid import UUID
 import os
 import requests
+from django.core.cache import cache
 
 api = NinjaAPI()
 
@@ -144,8 +144,16 @@ def mock_login(request, payload: MockLoginSchema):
 @api.get("/events", response=List[EventSchema], auth=JWTAuth())
 def list_events(request):
     auth_payload = request.auth
-    # Only return events for this user's specific school (tenant)
-    return PTMEvent.objects.filter(is_published=True, tenant_id=auth_payload['tenant_id'])
+    tenant_id = auth_payload['tenant_id']
+    
+    cache_key = f"events_{tenant_id}"
+    cached_events = cache.get(cache_key)
+    if cached_events is not None:
+        return cached_events
+        
+    events = list(PTMEvent.objects.filter(is_published=True, tenant_id=tenant_id))
+    cache.set(cache_key, events, 60) # Cache for 60 seconds
+    return events
 
 @api.post("/events", response=EventSchema, auth=JWTAuth())
 def create_event(request, payload: EventCreateSchema):
@@ -191,6 +199,9 @@ def create_event(request, payload: EventCreateSchema):
         current_time = slot_end + datetime.timedelta(minutes=payload.gap_duration_minutes)
         
     PTMSlot.objects.bulk_create(slots_to_create)
+    
+    # Invalidate cache
+    cache.delete(f"events_{tenant_id}")
     
     return event
 
@@ -373,9 +384,17 @@ def get_teacher_schedule(request):
     if auth_payload['role'] != 'TEACHER':
         return 403, {"message": "Only teachers can view their schedule"}
         
+    tenant_id = auth_payload['tenant_id']
+    teacher_id = auth_payload['user_id']
+    
+    cache_key = f"schedule_{tenant_id}_{teacher_id}"
+    cached_schedule = cache.get(cache_key)
+    if cached_schedule is not None:
+        return cached_schedule
+        
     slots = PTMSlot.objects.filter(
-        tenant_id=auth_payload['tenant_id'],
-        teacher_id=auth_payload['user_id']
+        tenant_id=tenant_id,
+        teacher_id=teacher_id
     ).prefetch_related('booking').order_by('start_time')
     
     result = []
@@ -400,6 +419,7 @@ def get_teacher_schedule(request):
             data["teacher_remarks"] = slot.booking.teacher_remarks
         result.append(data)
         
+    cache.set(cache_key, result, 60)
     return result
 
 
